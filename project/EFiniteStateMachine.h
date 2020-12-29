@@ -11,6 +11,7 @@
 //--- Includes ---
 #include <vector>
 #include <map>
+#include "Exam_HelperStructs.h"
 
 namespace Elite
 {
@@ -33,7 +34,7 @@ namespace Elite
 	public:
 		FSMTransition() = default;
 		virtual ~FSMTransition() = default;
-		virtual bool ToTransition(Blackboard* pBlackboard) const = 0;
+		virtual bool ToTransition(Blackboard* pBlackboard, const AgentInfo& agentInfo) const = 0;
 	};
 
 	class FiniteStateMachine final
@@ -43,7 +44,7 @@ namespace Elite
 		virtual ~FiniteStateMachine();
 		
 		void AddTransition(FSMState* startState, FSMState* toState, FSMTransition* transition);
-		void Update(float deltaTime);
+		void Update(float deltaTime, const AgentInfo& agentInfo);
 		Elite::Blackboard* GetBlackboard() const;
 
 	private:

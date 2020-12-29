@@ -28,7 +28,7 @@ void Elite::FiniteStateMachine::AddTransition(FSMState* startState, FSMState* to
     m_Transitions[startState].push_back(std::make_pair(transition, toState));
 }
 
-void Elite::FiniteStateMachine::Update(float deltaTime)
+void Elite::FiniteStateMachine::Update(float deltaTime, const AgentInfo& agentInfo)
 {
     auto it = m_Transitions.find(m_pCurrentState);
     if (it != m_Transitions.end())
@@ -37,7 +37,7 @@ void Elite::FiniteStateMachine::Update(float deltaTime)
         //the order that you add the transitions is the order of importance
         for (TransitionStatePair& transPair : it->second)
         {
-            if (transPair.first->ToTransition(m_pBlackboard))
+            if (transPair.first->ToTransition(m_pBlackboard, agentInfo))
             {
                 SetState(transPair.second);
                 break;

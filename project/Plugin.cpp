@@ -31,8 +31,7 @@ void Plugin::DllInit()
 
 	//setup blackboard
 	m_pBlackboard = new Elite::Blackboard();
-	//m_pBlackboard->AddData("Interface", m_pInterface);
-	m_pBlackboard->AddData("SteeringSelector", m_pSteeringController);
+	m_pBlackboard->AddData("SteeringController", m_pSteeringController);
 
 	std::vector<HouseInfo> houseInfoRef{};
 	m_pBlackboard->AddData("HousesInFOV", houseInfoRef);
@@ -43,15 +42,38 @@ void Plugin::DllInit()
 	TargetData targetData{};
 	m_pBlackboard->AddData("Target", targetData);
 
-	//setup states and transitions
-	m_pWanderState = new WanderState();
+	HouseInfo targetHouseInfo{};
+	m_pBlackboard->AddData("TargetHouse", targetHouseInfo);
+
+	EntityInfo targetItem{};
+	m_pBlackboard->AddData("TargetItem", targetItem);
+
+	//m_pBlackboard->AddData("CanRun", &m_CanRun);
+
+	//state machine setup
+
+	//STATES
+	m_pWanderState = new WanderState();	
 	m_pFleeState = new FleeState();
-	m_pSeekState = new SeekState();
-	m_pSeesZombieTransition = new SeesZombie();
-	m_pSeesHouseTransition = new SeesHouse();
+	m_pEnterHouseState = new EnterHouseState();
+	m_pSearchCurrentHouseState = new SearchCurrentHouseState();
+	m_pGrabItemState = new GrabItemState();
+	//TRANSITIONS
+	m_pSeesZombieTransition = new SeesZombieTransition();
+	m_pSeesHouseTransition = new SeesHouseTransition();
+	m_pSeesItemTransition = new SeesItemTransition();
+	m_pFinishedFleeingTransition = new FinishedFleeingTransition();
+	m_pIsInsideHouseTransition = new IsInsideHouseTransition();
+	
+	//STATE MACHINE
 	m_pFiniteStateMachine = new FiniteStateMachine( m_pWanderState, m_pBlackboard);
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pFleeState, m_pSeesZombieTransition);
-	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pSeekState, m_pSeesHouseTransition);
+	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pWanderState, m_pFinishedFleeingTransition);
+
+	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pEnterHouseState, m_pSeesHouseTransition);
+	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pSearchCurrentHouseState, m_pIsInsideHouseTransition);
+	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pGrabItemState, m_pSeesItemTransition);
+	
 }
 
 //Called only once
@@ -61,10 +83,17 @@ void Plugin::DllShutdown()
 
 	//delete m_pBlackboard;
 	delete m_pFiniteStateMachine;
+	//STATES
 	delete m_pWanderState;
-	delete m_pSeekState;
+	delete m_pEnterHouseState;
+	delete m_pSearchCurrentHouseState;
+	delete m_pGrabItemState;
+	//TRANSITIONS
 	delete m_pSeesZombieTransition;
 	delete m_pSeesHouseTransition;
+	delete m_pFinishedFleeingTransition;
+	delete m_pSeesItemTransition;
+	delete m_pIsInsideHouseTransition;
 	delete m_pSteeringController;
 }
 
@@ -126,8 +155,6 @@ void Plugin::Update(float dt)
 //This function calculates the new SteeringOutput, called once per frame
 SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 {
-	auto steering = SteeringPlugin_Output();
-
 	//Use the Interface (IAssignmentInterface) to 'interface' with the AI_Framework
 	auto agentInfo = m_pInterface->Agent_GetInfo();
 		
@@ -136,28 +163,8 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 	std::vector<EntityInfo> vEntitiesInFOV = GetEntitiesInFOV(); //uses m_pInterface->Fov_GetEntityByIndex(...)
 	m_pBlackboard->ChangeData("EntitiesInFOV", vEntitiesInFOV);
 
-	m_pFiniteStateMachine->Update(dt);
-	/*auto nextTargetPos = m_Target; //To start you can use the mouse position as guidance
-	for (auto& e : vEntitiesInFOV)
-	{
-		switch (e.Type)
-		{
-		case eEntityType::ENEMY:
-			nextTargetPos = e.Location;
-			break;
-		case eEntityType::PURGEZONE:
-			PurgeZoneInfo zoneInfo;
-			m_pInterface->PurgeZone_GetInfo(e, zoneInfo);
-			std::cout << "Purge Zone in FOV:" << e.Location.x << ", " << e.Location.y << " ---EntityHash: " << e.EntityHash << "---Radius: " << zoneInfo.Radius << std::endl;
-			break;
-		default:
-			break;
-		}
-	}*/
+	m_pFiniteStateMachine->Update(dt, agentInfo);
 	
-	
-	
-
 	//INVENTORY USAGE DEMO
 	//********************
 
@@ -188,21 +195,10 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 		m_pInterface->Inventory_RemoveItem(0);
 	}
 
-	//Simple Seek Behaviour (towards Target)
-	//steering.LinearVelocity = nextTargetPos - agentInfo.Position; //Desired Velocity
-	//steering.LinearVelocity.Normalize(); //Normalize Desired Velocity
-	//steering.LinearVelocity *= agentInfo.MaxLinearSpeed; //Rescale to Max Speed
-
-	/*if (Distance(nextTargetPos, agentInfo.Position) < 2.f)
-	{
-		steering.LinearVelocity = Elite::ZeroVector2;
-	}*/
-
-
 	//steering.AngularVelocity = m_AngSpeed; //Rotate your character to inspect the world while walking
-	steering.AutoOrient = true; //Setting AutoOrientate to TRue overrides the AngularVelocity
+	//steering.AutoOrient = true; //Setting AutoOrientate to TRue overrides the AngularVelocity
 
-	steering.RunMode = m_CanRun; //If RunMode is True > MaxLinSpd is increased for a limited time (till your stamina runs out)
+	//steering.RunMode = m_CanRun; //If RunMode is True > MaxLinSpd is increased for a limited time (till your stamina runs out)
 
 								 //SteeringPlugin_Output is works the exact same way a SteeringBehaviour output
 
@@ -212,8 +208,19 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 	m_RemoveItem = false;
 
 	//return steering;
+	SteeringPlugin_Output steering{ m_pSteeringController->CalculateSteering(dt, agentInfo) };
 
-	return m_pSteeringController->CalculateSteering(dt, agentInfo);
+	if (agentInfo.WasBitten)
+	{
+		m_CanRun = true;
+	}
+	if (agentInfo.RunMode && agentInfo.Stamina <= 0.1)
+	{
+		m_CanRun = false;
+	}
+	steering.RunMode = m_CanRun;
+
+	return steering;
 }
 
 //This function should only be used for rendering debug elements

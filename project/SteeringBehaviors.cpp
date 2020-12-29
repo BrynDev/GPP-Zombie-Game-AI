@@ -25,16 +25,9 @@ SteeringPlugin_Output Flee::CalculateSteering(float deltaT, const AgentInfo& age
 	//const float fleeRange{ 10.f }; //agent flees from target while in this range
 
 	Elite::Vector2 vectToTarget{ m_Target.Position - agentInfo.Position }; //vector from agent to target
-	//if (vectToTarget.Magnitude() >= fleeRange)
-	//{
-	//	steering.LinearVelocity = Elite::ZeroVector2;
-	//}
-	//else
-	//{
-		vectToTarget.Normalize();
-		steering.LinearVelocity = -agentInfo.MaxLinearSpeed * vectToTarget; //rescale vect to max speed
-	//}
-
+	vectToTarget.Normalize();
+	steering.LinearVelocity = -agentInfo.MaxLinearSpeed * vectToTarget; //rescale vect to max speed
+	
 	return steering;
 }
 
