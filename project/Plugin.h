@@ -50,12 +50,17 @@ private:
 	Elite::FSMState* m_pFleeState = nullptr;
 	Elite::FSMState* m_pEnterHouseState = nullptr;
 	Elite::FSMState* m_pSearchCurrentHouseState = nullptr;
+	Elite::FSMState* m_pExitCurrentHouseState = nullptr;
 	Elite::FSMState* m_pGrabItemState = nullptr;
+
 	Elite::FSMTransition* m_pSeesZombieTransition = nullptr;
 	Elite::FSMTransition* m_pSeesHouseTransition = nullptr;
 	Elite::FSMTransition* m_pSeesItemTransition = nullptr;
 	Elite::FSMTransition* m_pFinishedFleeingTransition = nullptr;
 	Elite::FSMTransition* m_pIsInsideHouseTransition = nullptr;
+	Elite::FSMTransition* m_pIsNotInsideHouseTransition = nullptr;
+	Elite::FSMTransition* m_pFinishedSearchingHouseTransition = nullptr;
+	Elite::FSMTransition* m_pHasGrabbedItemTransition = nullptr;
 
 	SteeringController* m_pSteeringController = nullptr;
 	//=========

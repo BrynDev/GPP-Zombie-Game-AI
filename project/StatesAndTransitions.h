@@ -113,6 +113,8 @@ public:
 			if (nextTarget.Position != target.Position)
 			{
 				pSteeringController->SetToSeek(nextTarget);
+				//mark the previous position as the house entry point, so the agent can exit this way later
+				pBlackboard->ChangeData("HouseEntryPoint", target.Position);
 				pBlackboard->ChangeData("Target", nextTarget);
 			}
 		}
@@ -156,23 +158,49 @@ public:
 		IExamInterface* pInterface{ nullptr };
 		pBlackboard->GetData("Interface", pInterface);
 		
-		EntityInfo target{};
-		pBlackboard->GetData("TargetItem", target);
+		EntityInfo targetItem{};
+		pBlackboard->GetData("TargetItem", targetItem);
 	
 		//pInterface->Draw_SolidCircle(target.Position, 5, { 1,1 }, { 1,0,0 });
 		const Elite::Vector2 agentPos{ pInterface->Agent_GetInfo().Position };
 		const float nearbyRange{ 1.0f };
 		//check if agent has arrived
-		if (Elite::Distance(target.Location, agentPos) <= nearbyRange)
-		{
-			ItemInfo itemInfo{};
-			pInterface->Item_GetInfo(target, itemInfo);
-	
-			ItemInfo item{};
-			pInterface->Item_Grab(target, item);
-			pInterface->Inventory_AddItem(0, item);
-			pInterface->Item_Destroy(target);
+		if (Elite::Distance(targetItem.Location, agentPos) <= nearbyRange)
+		{		
+			EvaluateItem(targetItem, pInterface);
+			//destroy the ground item after evaluating it
+			pInterface->Item_Destroy(targetItem);
 		}
+	}
+private:
+	void EvaluateItem(const EntityInfo& newItemEntityInfo, IExamInterface* const pInterface) const
+	{	
+		ItemInfo newItem{};
+		pInterface->Item_GetInfo(newItemEntityInfo, newItem);
+
+		if (newItem.Type == eItemType::GARBAGE)
+		{
+			//don't pick up garbage
+			return;
+		}
+		//check inventory
+		for (unsigned int i{ 0 }; i < pInterface->Inventory_GetCapacity(); ++i)
+		{
+			ItemInfo inventoryItem{};
+			//if there's an empty inventory slot, pick up the item
+			if (!pInterface->Inventory_GetItem(i, inventoryItem))
+			{
+				pInterface->Item_Grab(newItemEntityInfo, newItem);
+				pInterface->Inventory_AddItem(i, newItem);
+			}
+			else
+			{
+				eItemType newItemType{ newItem.Type };
+				
+			}
+		}
+
+	
 	}
 };
 
@@ -189,7 +217,64 @@ public:
 			return;
 		}
 
-		pSteeringController->SetToWander();
+		TargetData lastTarget{};
+		isDataAvailable = pBlackboard->GetData("Target", lastTarget);
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		HouseInfo houseInfo{};
+		isDataAvailable = pBlackboard->GetData("TargetHouse", houseInfo);
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		//move to house center
+		TargetData houseCenter{};
+		houseCenter.Position = houseInfo.Center;
+		pSteeringController->SetToSeek(houseCenter);
+	}
+};
+
+class ExitCurrentHouseState final : public FSMState
+{
+public:
+	ExitCurrentHouseState() : FSMState() {};
+	virtual void OnEnter(Blackboard* pBlackboard) override
+	{
+		SteeringController* pSteeringController{};
+		bool isDataAvailable = pBlackboard->GetData("SteeringController", pSteeringController);
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		Elite::Vector2 houseEntryPoint{};
+		isDataAvailable = pBlackboard->GetData("HouseEntryPoint", houseEntryPoint);
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		TargetData target{};
+		target.Position = houseEntryPoint;
+		//pBlackboard->GetData("Target", target);
+		pSteeringController->SetToSeek(target);
+	}
+	virtual void OnExit(Blackboard* pBlackboard) override
+	{
+		//set the target to the house entry point
+		//when the agent leaves the house and transitions to the flee state,
+		//it will run away from the house before wandering
+		//this makes it so the agent doesn't stick near the house it just looted
+
+		TargetData target{};
+		Elite::Vector2 houseEntryPoint{};
+		pBlackboard->GetData("HouseEntryPoint", houseEntryPoint);
+		target.Position = houseEntryPoint;
+		pBlackboard->ChangeData("Target", target);
 	}
 };
 
@@ -240,6 +325,14 @@ public:
 
 		if (!housesVect.empty())
 		{
+			//make sure not to enter the same house twice in a row
+			HouseInfo prevHouse{};
+			pBlackboard->GetData("TargetHouse", prevHouse);
+			if (housesVect[0].Center == prevHouse.Center)
+			{
+				return false;
+			}
+
 			IExamInterface* pInterface{ nullptr };
 			pBlackboard->GetData("Interface", pInterface);
 			//get house info
@@ -307,15 +400,14 @@ public:
 			return false;
 		}
 
-		if (Distance(fleeTarget.Position, pInterface->Agent_GetInfo().Position) >= m_RequiredDistance)
+		const float requiredDistance{ 40.f };
+		if (Distance(fleeTarget.Position, agentInfo.Position) >= requiredDistance)
 		{
 			return true;
 		}
 		return false;
 
 	}
-private:
-	const float m_RequiredDistance = 40.f;
 };
 
 class IsInsideHouseTransition final : public FSMTransition
@@ -327,4 +419,59 @@ public:
 		return agentInfo.IsInHouse;
 	}
 };
+
+class IsNotInsideHouseTransition final : public FSMTransition
+{
+public:
+	IsNotInsideHouseTransition() : FSMTransition() {};
+	virtual bool ToTransition(Blackboard* pBlackboard, const AgentInfo& agentInfo) const override
+	{
+		return !agentInfo.IsInHouse;
+	}
+};
+
+class FinishedSearchingHouseTransition final : public FSMTransition
+{
+public:
+	FinishedSearchingHouseTransition() : FSMTransition() {};
+	virtual bool ToTransition(Blackboard* pBlackboard, const AgentInfo& agentInfo) const override
+	{
+		HouseInfo targetHouse{};
+		bool isDataAvailable = pBlackboard->GetData("TargetHouse", targetHouse);
+		if (!isDataAvailable)
+		{
+			return false;
+		}
+
+		const float nearbyRange{2.f};
+		if (Distance(targetHouse.Center, agentInfo.Position) <= nearbyRange)
+		{
+			return true;
+		}
+		return false;
+	}
+};
+
+class HasGrabbedItemTransition final : public FSMTransition
+{
+public:
+	HasGrabbedItemTransition() : FSMTransition() {};
+	virtual bool ToTransition(Blackboard* pBlackboard, const AgentInfo& agentInfo) const override
+	{
+		EntityInfo targetItem{};
+		bool isDataAvailable = pBlackboard->GetData("TargetItem", targetItem);
+		if (!isDataAvailable)
+		{
+			return false;
+		}
+
+		const float nearbyRange{ 1.f };
+		if (Distance(targetItem.Location, agentInfo.Position) <= nearbyRange)
+		{
+			return true;
+		}
+		return false;
+	}
+};
+
 #endif

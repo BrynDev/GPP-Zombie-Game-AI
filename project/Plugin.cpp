@@ -48,7 +48,7 @@ void Plugin::DllInit()
 	EntityInfo targetItem{};
 	m_pBlackboard->AddData("TargetItem", targetItem);
 
-	//m_pBlackboard->AddData("CanRun", &m_CanRun);
+	m_pBlackboard->AddData("HouseEntryPoint", Elite::Vector2{});
 
 	//state machine setup
 
@@ -57,6 +57,8 @@ void Plugin::DllInit()
 	m_pFleeState = new FleeState();
 	m_pEnterHouseState = new EnterHouseState();
 	m_pSearchCurrentHouseState = new SearchCurrentHouseState();
+	m_pExitCurrentHouseState = new ExitCurrentHouseState();
+
 	m_pGrabItemState = new GrabItemState();
 	//TRANSITIONS
 	m_pSeesZombieTransition = new SeesZombieTransition();
@@ -64,16 +66,24 @@ void Plugin::DllInit()
 	m_pSeesItemTransition = new SeesItemTransition();
 	m_pFinishedFleeingTransition = new FinishedFleeingTransition();
 	m_pIsInsideHouseTransition = new IsInsideHouseTransition();
+	m_pIsNotInsideHouseTransition = new IsNotInsideHouseTransition();
+	m_pFinishedSearchingHouseTransition = new FinishedSearchingHouseTransition();
+	m_pHasGrabbedItemTransition = new HasGrabbedItemTransition();
 	
 	//STATE MACHINE
 	m_pFiniteStateMachine = new FiniteStateMachine( m_pWanderState, m_pBlackboard);
+	//outside of houses
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pFleeState, m_pSeesZombieTransition);
 	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pWanderState, m_pFinishedFleeingTransition);
 
+	//house related
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pEnterHouseState, m_pSeesHouseTransition);
 	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pSearchCurrentHouseState, m_pIsInsideHouseTransition);
 	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pGrabItemState, m_pSeesItemTransition);
-	
+	m_pFiniteStateMachine->AddTransition(m_pGrabItemState, m_pSearchCurrentHouseState, m_pHasGrabbedItemTransition);
+	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pExitCurrentHouseState, m_pFinishedSearchingHouseTransition);
+	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pFleeState, m_pIsNotInsideHouseTransition);
+
 }
 
 //Called only once
@@ -87,6 +97,7 @@ void Plugin::DllShutdown()
 	delete m_pWanderState;
 	delete m_pEnterHouseState;
 	delete m_pSearchCurrentHouseState;
+	delete m_pExitCurrentHouseState;
 	delete m_pGrabItemState;
 	//TRANSITIONS
 	delete m_pSeesZombieTransition;
@@ -94,6 +105,9 @@ void Plugin::DllShutdown()
 	delete m_pFinishedFleeingTransition;
 	delete m_pSeesItemTransition;
 	delete m_pIsInsideHouseTransition;
+	delete m_pIsNotInsideHouseTransition;
+	delete m_pHasGrabbedItemTransition;
+
 	delete m_pSteeringController;
 }
 
