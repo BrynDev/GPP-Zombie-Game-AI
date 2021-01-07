@@ -7,6 +7,7 @@ SteeringController::SteeringController()
 	:m_pWander{new Wander()}
 	, m_pFlee{new Flee()}
 	, m_pSeek{new Seek()}
+	, m_pFace{new Face()}
 	, m_pImperfectFlee{nullptr}
 	, m_pCurrentSteering{nullptr}
 {
@@ -18,6 +19,7 @@ SteeringController::~SteeringController()
 	delete m_pWander;
 	delete m_pFlee;
 	delete m_pSeek;
+	delete m_pFace;
 	delete m_pImperfectFlee;
 }
 
@@ -47,4 +49,10 @@ void SteeringController::SetToSeek(const TargetData& target)
 {
 	m_pCurrentSteering = m_pSeek;
 	m_pSeek->SetTarget(target);
+}
+
+void SteeringController::SetToFace(const TargetData& target)
+{
+	m_pCurrentSteering = m_pFace;
+	m_pFace->SetTarget(target);
 }

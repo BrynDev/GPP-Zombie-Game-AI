@@ -48,7 +48,12 @@ void Plugin::DllInit()
 	EntityInfo targetItem{};
 	m_pBlackboard->AddData("TargetItem", targetItem);
 
+	EnemyInfo targetEnemy{};
+	m_pBlackboard->AddData("TargetEnemy", targetEnemy);
+
 	m_pBlackboard->AddData("HouseEntryPoint", Elite::Vector2{});
+	m_pBlackboard->AddData("WeaponInventoryIndex", int{-1});
+	m_pBlackboard->AddData("AutoOrient", bool{ true });
 
 	//state machine setup
 
@@ -58,8 +63,8 @@ void Plugin::DllInit()
 	m_pEnterHouseState = new EnterHouseState();
 	m_pSearchCurrentHouseState = new SearchCurrentHouseState();
 	m_pExitCurrentHouseState = new ExitCurrentHouseState();
-
 	m_pGrabItemState = new GrabItemState();
+	m_pKillZombieState = new KillZombieState();
 	//TRANSITIONS
 	m_pSeesZombieTransition = new SeesZombieTransition();
 	m_pSeesHouseTransition = new SeesHouseTransition();
@@ -69,13 +74,17 @@ void Plugin::DllInit()
 	m_pIsNotInsideHouseTransition = new IsNotInsideHouseTransition();
 	m_pFinishedSearchingHouseTransition = new FinishedSearchingHouseTransition();
 	m_pHasGrabbedItemTransition = new HasGrabbedItemTransition();
-	
+	m_pCanKillZombieTransition = new CanKillZombieTransition();
+
 	//STATE MACHINE
 	m_pFiniteStateMachine = new FiniteStateMachine( m_pWanderState, m_pBlackboard);
-	//outside of houses
+	//zombie related
+	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pKillZombieState, m_pCanKillZombieTransition);
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pFleeState, m_pSeesZombieTransition);
 	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pWanderState, m_pFinishedFleeingTransition);
-
+	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
+	//m_pFiniteStateMachine->AddTransition(m_pKillZombieState, m_pWanderState, m_pCanKillZombieTransition);
 	//house related
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pEnterHouseState, m_pSeesHouseTransition);
 	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pSearchCurrentHouseState, m_pIsInsideHouseTransition);
@@ -83,7 +92,7 @@ void Plugin::DllInit()
 	m_pFiniteStateMachine->AddTransition(m_pGrabItemState, m_pSearchCurrentHouseState, m_pHasGrabbedItemTransition);
 	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pExitCurrentHouseState, m_pFinishedSearchingHouseTransition);
 	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pFleeState, m_pIsNotInsideHouseTransition);
-
+	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pGrabItemState, m_pHasGrabbedItemTransition);
 }
 
 //Called only once
@@ -99,6 +108,7 @@ void Plugin::DllShutdown()
 	delete m_pSearchCurrentHouseState;
 	delete m_pExitCurrentHouseState;
 	delete m_pGrabItemState;
+	delete m_pKillZombieState;
 	//TRANSITIONS
 	delete m_pSeesZombieTransition;
 	delete m_pSeesHouseTransition;
@@ -107,6 +117,7 @@ void Plugin::DllShutdown()
 	delete m_pIsInsideHouseTransition;
 	delete m_pIsNotInsideHouseTransition;
 	delete m_pHasGrabbedItemTransition;
+	delete m_pCanKillZombieTransition;
 
 	delete m_pSteeringController;
 }
@@ -169,57 +180,16 @@ void Plugin::Update(float dt)
 //This function calculates the new SteeringOutput, called once per frame
 SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 {
-	//Use the Interface (IAssignmentInterface) to 'interface' with the AI_Framework
-	auto agentInfo = m_pInterface->Agent_GetInfo();
-		
+
+
 	std::vector<HouseInfo> vHousesInFOV = GetHousesInFOV();//uses m_pInterface->Fov_GetHouseByIndex(...)
 	m_pBlackboard->ChangeData("HousesInFOV", vHousesInFOV);
 	std::vector<EntityInfo> vEntitiesInFOV = GetEntitiesInFOV(); //uses m_pInterface->Fov_GetEntityByIndex(...)
 	m_pBlackboard->ChangeData("EntitiesInFOV", vEntitiesInFOV);
-
-	m_pFiniteStateMachine->Update(dt, agentInfo);
 	
-	//INVENTORY USAGE DEMO
-	//********************
-
-	if (m_GrabItem)
-	{
-		ItemInfo item;
-		//Item_Grab > When DebugParams.AutoGrabClosestItem is TRUE, the Item_Grab function returns the closest item in range
-		//Keep in mind that DebugParams are only used for debugging purposes, by default this flag is FALSE
-		//Otherwise, use GetEntitiesInFOV() to retrieve a vector of all entities in the FOV (EntityInfo)
-		//Item_Grab gives you the ItemInfo back, based on the passed EntityHash (retrieved by GetEntitiesInFOV)
-		if (m_pInterface->Item_Grab({}, item))
-		{
-			//Once grabbed, you can add it to a specific inventory slot
-			//Slot must be empty
-			m_pInterface->Inventory_AddItem(0, item);
-		}
-	}
-
-	if (m_UseItem)
-	{
-		//Use an item (make sure there is an item at the given inventory slot)
-		m_pInterface->Inventory_UseItem(0);
-	}
-
-	if (m_RemoveItem)
-	{
-		//Remove an item from a inventory slot
-		m_pInterface->Inventory_RemoveItem(0);
-	}
-
-	//steering.AngularVelocity = m_AngSpeed; //Rotate your character to inspect the world while walking
-	//steering.AutoOrient = true; //Setting AutoOrientate to TRue overrides the AngularVelocity
-
-	//steering.RunMode = m_CanRun; //If RunMode is True > MaxLinSpd is increased for a limited time (till your stamina runs out)
-
-								 //SteeringPlugin_Output is works the exact same way a SteeringBehaviour output
-
-								 //@End (Demo Purposes)
-	m_GrabItem = false; //Reset State
-	m_UseItem = false;
-	m_RemoveItem = false;
+	//UseConsumables(agentInfo, vEntitiesInFOV);
+	m_pFiniteStateMachine->Update(dt);
+	auto agentInfo = m_pInterface->Agent_GetInfo();
 
 	//return steering;
 	SteeringPlugin_Output steering{ m_pSteeringController->CalculateSteering(dt, agentInfo) };
@@ -234,6 +204,7 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 	}
 	steering.RunMode = m_CanRun;
 
+	m_pBlackboard->GetData("AutoOrient", steering.AutoOrient);
 	return steering;
 }
 
@@ -280,4 +251,53 @@ vector<EntityInfo> Plugin::GetEntitiesInFOV() const
 	}
 
 	return vEntitiesInFOV;
+}
+
+void Plugin::UseConsumables(const AgentInfo& agentInfo, const std::vector<EntityInfo>& entitiesInFOV)
+{
+	const unsigned int invCapacity{ m_pInterface->Inventory_GetCapacity() };
+
+	//check all inventory items
+	for (unsigned int i{ 0 }; i < invCapacity; ++i)
+	{
+		ItemInfo invItem{};
+
+		if (!m_pInterface->Inventory_GetItem(i, invItem))
+		{
+			//if this slot is empty, continue
+			continue;
+		}
+		
+		int itemValue{};
+		switch (invItem.Type)
+		{
+		case eItemType::FOOD:
+			itemValue = m_pInterface->Food_GetEnergy(invItem);
+			if (agentInfo.Energy + itemValue < 10.f)
+			{
+				m_pInterface->Inventory_UseItem(i);
+				m_pInterface->Inventory_RemoveItem(i);
+			}		
+			break;
+		case eItemType::MEDKIT:
+			itemValue = m_pInterface->Medkit_GetHealth(invItem);
+			if (agentInfo.Health + itemValue < 10.f)
+			{
+				m_pInterface->Inventory_UseItem(i);
+				m_pInterface->Inventory_RemoveItem(i);
+			}
+			break;
+		case eItemType::PISTOL:
+			/*for(const EntityInfo& info : entitiesInFOV)
+			{
+				if (info.Type == eEntityType::ENEMY)
+				{
+					m_pInterface->Inventory_UseItem(i);
+				}
+			}*/
+			break;
+		default:
+			break;
+		}
+	}
 }

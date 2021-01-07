@@ -31,61 +31,33 @@ SteeringPlugin_Output Flee::CalculateSteering(float deltaT, const AgentInfo& age
 	return steering;
 }
 
-/*
-//ARRIVE
+//FACE
 //*****
-SteeringOutput Arrive::CalculateSteering(float deltaT, SteeringAgent* pAgent)
+
+SteeringPlugin_Output Face::CalculateSteering(float deltaT, const AgentInfo& agentInfo)
 {
-	SteeringOutput steering{};
-	const float arriveRange{ 5.f }; //slow down when agent is in range of target
-	Elite::Vector2 vectToTarget{ m_Target.Position - pAgent->GetPosition() }; //vector from agent to target
-	if (vectToTarget.Magnitude() <= arriveRange)
+	SteeringPlugin_Output steering{};
+	
+	Elite::Vector2 vectToTarget{ m_Target.Position - agentInfo.Position }; //vector from agent to target
+
+	float angleToTarget{ atan2f(vectToTarget.x, -vectToTarget.y) }; //get angle between target and x axis
+	float currentRotation{ agentInfo.Orientation };
+
+	//check if agent is facing the target, if so then stop rotating
+	const float epsilon{ 0.1f };
+	if (currentRotation + epsilon > angleToTarget && currentRotation - epsilon < angleToTarget)
 	{
-		steering.LinearVelocity = Elite::ZeroVector2;
+		steering.AngularVelocity = 0;
 	}
 	else
 	{
-		vectToTarget.Normalize();
-		steering.LinearVelocity = pAgent->GetMaxLinearSpeed() * vectToTarget; //rescale vect to max speed
+		//set angular velocity correctly
+		//1 if true, -1 if false
+		steering.AngularVelocity = (int(angleToTarget > currentRotation) * 2 - 1) * agentInfo.MaxAngularSpeed;
 	}
 
 	return steering;
 }
-
-//FACE
-//*****
-/*
-SteeringOutput Face::CalculateSteering(float deltaT, SteeringAgent* pAgent)
-{
-	SteeringOutput steering{};
-	
-	Elite::Vector2 vectToTarget{ m_Target.Position - pAgent->GetPosition() }; //vector from agent to target
-
-
-	//this method relies on AutoOrient to handle the rotation by moving in the correct direction at a very low speed
-	
-	//pAgent->SetAutoOrient(true);
-	//vectToTarget.Normalize();
-	//steering.LinearVelocity = 0.00000000001f * vectToTarget;
-	
-
-	//this method performs facing using angular velocity, with AutoOrient set to off (done in App_SteeringBehaviors)
-	float angleToTarget{ atan2f(vectToTarget.x, -vectToTarget.y) }; //get angle between target and x axis
-	float currentRotation{ pAgent->GetRotation() };
-
-	//set angular velocity correctly
-	//1 if true, -1 if false
-	steering.AngularVelocity = (int(angleToTarget > currentRotation) * 2 - 1) * pAgent->GetMaxAngularSpeed();
-
-	//check if agent is facing the target, if so then stop rotating
-	const float epsilon{ 0.1f };
-	if (currentRotation + epsilon > angleToTarget&& currentRotation - epsilon < angleToTarget)
-	{
-		steering.AngularVelocity = 0;
-	}
-
-	return steering;
-}*/
 
 //WANDER (base> SEEK)
 //******

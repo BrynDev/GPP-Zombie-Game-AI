@@ -35,6 +35,7 @@ private:
 	IExamInterface* m_pInterface = nullptr;
 	vector<HouseInfo> GetHousesInFOV() const;
 	vector<EntityInfo> GetEntitiesInFOV() const;
+	void UseConsumables(const AgentInfo& agentInfo, const std::vector<EntityInfo>& entitiesInFOV);
 
 	Elite::Vector2 m_Target = {};
 	bool m_CanRun = false; //Demo purpose
@@ -52,6 +53,7 @@ private:
 	Elite::FSMState* m_pSearchCurrentHouseState = nullptr;
 	Elite::FSMState* m_pExitCurrentHouseState = nullptr;
 	Elite::FSMState* m_pGrabItemState = nullptr;
+	Elite::FSMState* m_pKillZombieState = nullptr;
 
 	Elite::FSMTransition* m_pSeesZombieTransition = nullptr;
 	Elite::FSMTransition* m_pSeesHouseTransition = nullptr;
@@ -61,6 +63,7 @@ private:
 	Elite::FSMTransition* m_pIsNotInsideHouseTransition = nullptr;
 	Elite::FSMTransition* m_pFinishedSearchingHouseTransition = nullptr;
 	Elite::FSMTransition* m_pHasGrabbedItemTransition = nullptr;
+	Elite::FSMTransition* m_pCanKillZombieTransition = nullptr;
 
 	SteeringController* m_pSteeringController = nullptr;
 	//=========

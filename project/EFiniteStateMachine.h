@@ -34,7 +34,7 @@ namespace Elite
 	public:
 		FSMTransition() = default;
 		virtual ~FSMTransition() = default;
-		virtual bool ToTransition(Blackboard* pBlackboard, const AgentInfo& agentInfo) const = 0;
+		virtual bool ToTransition(Blackboard* pBlackboard) const = 0;
 	};
 
 	class FiniteStateMachine final
@@ -44,7 +44,7 @@ namespace Elite
 		virtual ~FiniteStateMachine();
 		
 		void AddTransition(FSMState* startState, FSMState* toState, FSMTransition* transition);
-		void Update(float deltaTime, const AgentInfo& agentInfo);
+		void Update(float deltaTime);
 		Elite::Blackboard* GetBlackboard() const;
 
 	private:
