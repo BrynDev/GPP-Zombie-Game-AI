@@ -6,6 +6,7 @@ class ISteeringBehavior;
 class Wander;
 class Flee;
 class Seek;
+class Face;
 class BlendedSteering;
 
 class SteeringController
@@ -18,6 +19,7 @@ public:
 	void SetToFlee(const TargetData& target);
 	void SetToImperfectFlee(const TargetData& target);
 	void SetToSeek(const TargetData& target);
+	void SetToFace(const TargetData& target);
 	SteeringPlugin_Output CalculateSteering(const float deltaTime, const AgentInfo& agentInfo) const;
 
 	SteeringController(const SteeringController& other) = delete;
@@ -28,6 +30,7 @@ private:
 	Wander* m_pWander;
 	Flee* m_pFlee;
 	Seek* m_pSeek;
+	Face* m_pFace;
 	BlendedSteering* m_pImperfectFlee;
 	ISteeringBehavior* m_pCurrentSteering;
 };
