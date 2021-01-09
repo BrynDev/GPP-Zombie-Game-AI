@@ -54,6 +54,8 @@ void Plugin::DllInit()
 	m_pBlackboard->AddData("HouseEntryPoint", Elite::Vector2{});
 	m_pBlackboard->AddData("WeaponInventoryIndex", int{-1});
 	m_pBlackboard->AddData("AutoOrient", bool{ true });
+	m_pBlackboard->AddData("NrTimesToShoot", int{ 0 });
+	m_pBlackboard->AddData("TargetPurgeZone", PurgeZoneInfo{});
 
 	//state machine setup
 
@@ -65,6 +67,7 @@ void Plugin::DllInit()
 	m_pExitCurrentHouseState = new ExitCurrentHouseState();
 	m_pGrabItemState = new GrabItemState();
 	m_pKillZombieState = new KillZombieState();
+	m_pGoToWorldCenterState = new GoToWorldCenterState();
 	//TRANSITIONS
 	m_pSeesZombieTransition = new SeesZombieTransition();
 	m_pSeesHouseTransition = new SeesHouseTransition();
@@ -75,24 +78,35 @@ void Plugin::DllInit()
 	m_pFinishedSearchingHouseTransition = new FinishedSearchingHouseTransition();
 	m_pHasGrabbedItemTransition = new HasGrabbedItemTransition();
 	m_pCanKillZombieTransition = new CanKillZombieTransition();
-
+	m_pHasKilledZombieTransition = new HasKilledZombieTransition();
+	m_pHasLeftWorldTransition = new HasLeftWorldTransition();
+	m_pIsAtWorldCenterTransition = new IsAtWorldCenterTransition();
 	//STATE MACHINE
 	m_pFiniteStateMachine = new FiniteStateMachine( m_pWanderState, m_pBlackboard);
 	//zombie related
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pKillZombieState, m_pCanKillZombieTransition);
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pFleeState, m_pSeesZombieTransition);
-	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pWanderState, m_pFinishedFleeingTransition);
-	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pWanderState, m_pFinishedFleeingTransition);	
+	//m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition); //could add another transition that first checks if agent is in house
 	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
-	//m_pFiniteStateMachine->AddTransition(m_pKillZombieState, m_pWanderState, m_pCanKillZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pKillZombieState, m_pWanderState, m_pHasKilledZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pKillZombieState, m_pCanKillZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
 	//house related
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pEnterHouseState, m_pSeesHouseTransition);
 	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pSearchCurrentHouseState, m_pIsInsideHouseTransition);
 	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pGrabItemState, m_pSeesItemTransition);
 	m_pFiniteStateMachine->AddTransition(m_pGrabItemState, m_pSearchCurrentHouseState, m_pHasGrabbedItemTransition);
 	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pExitCurrentHouseState, m_pFinishedSearchingHouseTransition);
+	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pExitCurrentHouseState, m_pSeesZombieTransition);
 	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pFleeState, m_pIsNotInsideHouseTransition);
+	//m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pWanderState, m_pIsNotInsideHouseTransition);
 	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pGrabItemState, m_pHasGrabbedItemTransition);
+
+	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pGoToWorldCenterState, m_pHasLeftWorldTransition);
+	m_pFiniteStateMachine->AddTransition(m_pGoToWorldCenterState, m_pEnterHouseState, m_pSeesHouseTransition);
+	m_pFiniteStateMachine->AddTransition(m_pGoToWorldCenterState, m_pKillZombieState, m_pCanKillZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pGoToWorldCenterState, m_pWanderState, m_pIsAtWorldCenterTransition);
 }
 
 //Called only once
@@ -109,6 +123,7 @@ void Plugin::DllShutdown()
 	delete m_pExitCurrentHouseState;
 	delete m_pGrabItemState;
 	delete m_pKillZombieState;
+	delete m_pGoToWorldCenterState;
 	//TRANSITIONS
 	delete m_pSeesZombieTransition;
 	delete m_pSeesHouseTransition;
@@ -118,6 +133,9 @@ void Plugin::DllShutdown()
 	delete m_pIsNotInsideHouseTransition;
 	delete m_pHasGrabbedItemTransition;
 	delete m_pCanKillZombieTransition;
+	delete m_pHasKilledZombieTransition;
+	delete m_pHasLeftWorldTransition;
+	delete m_pIsAtWorldCenterTransition;
 
 	delete m_pSteeringController;
 }
@@ -180,17 +198,15 @@ void Plugin::Update(float dt)
 //This function calculates the new SteeringOutput, called once per frame
 SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 {
-
-
 	std::vector<HouseInfo> vHousesInFOV = GetHousesInFOV();//uses m_pInterface->Fov_GetHouseByIndex(...)
 	m_pBlackboard->ChangeData("HousesInFOV", vHousesInFOV);
 	std::vector<EntityInfo> vEntitiesInFOV = GetEntitiesInFOV(); //uses m_pInterface->Fov_GetEntityByIndex(...)
 	m_pBlackboard->ChangeData("EntitiesInFOV", vEntitiesInFOV);
 	
-	//UseConsumables(agentInfo, vEntitiesInFOV);
+	
 	m_pFiniteStateMachine->Update(dt);
 	auto agentInfo = m_pInterface->Agent_GetInfo();
-
+	UseConsumables(agentInfo);
 	//return steering;
 	SteeringPlugin_Output steering{ m_pSteeringController->CalculateSteering(dt, agentInfo) };
 
@@ -253,7 +269,7 @@ vector<EntityInfo> Plugin::GetEntitiesInFOV() const
 	return vEntitiesInFOV;
 }
 
-void Plugin::UseConsumables(const AgentInfo& agentInfo, const std::vector<EntityInfo>& entitiesInFOV)
+void Plugin::UseConsumables(const AgentInfo& agentInfo)
 {
 	const unsigned int invCapacity{ m_pInterface->Inventory_GetCapacity() };
 
@@ -286,15 +302,6 @@ void Plugin::UseConsumables(const AgentInfo& agentInfo, const std::vector<Entity
 				m_pInterface->Inventory_UseItem(i);
 				m_pInterface->Inventory_RemoveItem(i);
 			}
-			break;
-		case eItemType::PISTOL:
-			/*for(const EntityInfo& info : entitiesInFOV)
-			{
-				if (info.Type == eEntityType::ENEMY)
-				{
-					m_pInterface->Inventory_UseItem(i);
-				}
-			}*/
 			break;
 		default:
 			break;

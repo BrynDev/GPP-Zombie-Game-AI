@@ -87,7 +87,7 @@ public:
 	//Wander Behavior
 	SteeringPlugin_Output CalculateSteering(float deltaT, const AgentInfo& agentInfo) override;
 protected:
-	float m_Offset = 6.f; //distance from agent to circle center
+	float m_Offset = 9.f; //distance from agent to circle center
 	float m_Radius = 4.f;
 	float m_AngleChange = ToRadians(45); //max WanderAngle change per frame
 	float m_WanderAngle = 0.f;
