@@ -46,18 +46,7 @@ public:
 		}
 
 		TargetData target{};
-		isDataAvailable = pBlackboard->GetData("Target", target);
-		if (!isDataAvailable)
-		{
-			return;
-		}
-
-		IExamInterface* pInterface{};
-		isDataAvailable = pBlackboard->GetData("Interface", pInterface);
-		if (!isDataAvailable)
-		{
-			return;
-		}
+		pBlackboard->GetData("Target", target);
 
 		pSteeringController->SetToImperfectFlee(target);
 	}
@@ -78,31 +67,27 @@ public:
 		}
 
 		TargetData target{};
-		isDataAvailable = pBlackboard->GetData("Target", target);
-		if (!isDataAvailable)
-		{
-			return;
-		}
-
+		pBlackboard->GetData("Target", target);
+		
 		pSteeringController->SetToSeek(target);
 	}
 	virtual void Update(Blackboard* pBlackboard, float deltaTime) override
 	{
 		IExamInterface* pInterface{ nullptr };
-		pBlackboard->GetData("Interface", pInterface);
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		if (!isDataAvailable)
+		{
+			return;
+		}
 
 		TargetData target{};
 		pBlackboard->GetData("Target", target);
 		
 		//check if agent has arrived
 		const Elite::Vector2 agentPos{ pInterface->Agent_GetInfo().Position };
-		const float nearbyRange{ 0.5f };
-		if (Elite::Distance(target.Position, agentPos) <= nearbyRange)
+		const float nearbyRange{ 1.f };
+		if (Elite::DistanceSquared(target.Position, agentPos) <= nearbyRange * nearbyRange)
 		{
-			SteeringController* pSteeringController{ nullptr };
-			pBlackboard->GetData("SteeringController", pSteeringController);
-
-			//get house info
 			HouseInfo targetHouseInfo{};
 			pBlackboard->GetData("TargetHouse", targetHouseInfo);
 			//now that agent has arrived at the goal, go to the next closest navmesh point to the house
@@ -112,6 +97,13 @@ public:
 			nextTarget.Position = pInterface->NavMesh_GetClosestPathPoint(targetHouseInfo.Center);
 			if (nextTarget.Position != target.Position)
 			{
+				SteeringController* pSteeringController{ nullptr };
+				isDataAvailable = pBlackboard->GetData("SteeringController", pSteeringController);
+				if (!isDataAvailable)
+				{
+					return;
+				}
+
 				pSteeringController->SetToSeek(nextTarget);
 				//mark the previous position as the house entry point, so the agent can exit this way later
 				pBlackboard->ChangeData("HouseEntryPoint", target.Position);
@@ -119,6 +111,19 @@ public:
 			}
 		}
 	}
+
+	virtual void OnExit(Blackboard* pBlackboard) override
+	{
+		IExamInterface* pInterface{};
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		pBlackboard->ChangeData("HouseEntryPoint", pInterface->Agent_GetInfo().Position);
+	}
+	
 };
 
 class GrabItemState final : public FSMState
@@ -128,14 +133,10 @@ public:
 	virtual void OnEnter(Blackboard* pBlackboard) override
 	{
 		EntityInfo entityInfo{};
-		bool isDataAvailable{ pBlackboard->GetData("TargetItem", entityInfo) };
-		if (!isDataAvailable)
-		{
-			return;
-		}
-
+		pBlackboard->GetData("TargetItem", entityInfo);
+		
 		SteeringController* pSteeringController;
-		isDataAvailable = pBlackboard->GetData("SteeringController", pSteeringController);
+		bool isDataAvailable = pBlackboard->GetData("SteeringController", pSteeringController);
 		if (!isDataAvailable)
 		{
 			return;
@@ -144,13 +145,6 @@ public:
 		TargetData seekTarget{};
 		seekTarget.Position = entityInfo.Location;
 		pSteeringController->SetToSeek(seekTarget);
-
-		IExamInterface* pInterface{};
-		isDataAvailable = pBlackboard->GetData("Interface", pInterface);
-		if (!isDataAvailable)
-		{
-			return;
-		}
 	}
 
 	virtual void OnExit(Blackboard* pBlackboard) override
@@ -164,29 +158,31 @@ public:
 
 		EntityInfo targetItem{};
 		pBlackboard->GetData("TargetItem", targetItem);
-
 		AgentInfo agentInfo{ pInterface->Agent_GetInfo() };
-		
-		
+				
 		const Elite::Vector2 agentPos{ agentInfo.Position };
 		const float nearbyRange{ 1.0f };
 		//check if agent has arrived
-		if (Elite::Distance(targetItem.Location, agentPos) <= nearbyRange)
+		if (Elite::DistanceSquared(targetItem.Location, agentPos) <= nearbyRange * nearbyRange)
 		{
 			EvaluateItem(targetItem, pBlackboard, pInterface);
-			//destroy the ground item after evaluating it
-			pInterface->Item_Destroy(targetItem);
 		}
 	}
 private:
 	void EvaluateItem(const EntityInfo& newItemEntityInfo, Blackboard* pBlackboard ,IExamInterface* const pInterface) const
 	{	
 		ItemInfo newItem{};
-		pInterface->Item_GetInfo(newItemEntityInfo, newItem);
+		if (!pInterface->Item_GetInfo(newItemEntityInfo, newItem))
+		{
+			//trying to pick up an invalid item
+			return;
+		}
+
 		eItemType newItemType{ newItem.Type };
 		if (newItemType == eItemType::GARBAGE)
 		{
 			//don't pick up garbage
+			pInterface->Item_Destroy(newItemEntityInfo);
 			return;
 		}
 
@@ -205,6 +201,7 @@ private:
 				pInterface->Inventory_AddItem(i, newItem);
 				if (newItem.Type == eItemType::PISTOL)
 				{
+					//if this is a pistol, mark it so the agent can use it
 					pBlackboard->ChangeData("WeaponInventoryIndex", int(i));
 				}
 				return;
@@ -221,9 +218,9 @@ private:
 		for (unsigned int i{ 0 }; i < invCapacity; ++i)
 		{
 			ItemInfo invItem{ invItems[i] };
-			if (invItem.Type == newItem.Type)
+			if (invItem.Type == newItemType)
 			{
-				switch (newItem.Type)
+				switch (newItemType)
 				{
 				case eItemType::FOOD:
 					if (pInterface->Food_GetEnergy(newItem) >= pInterface->Food_GetEnergy(invItem))
@@ -274,19 +271,9 @@ public:
 			return;
 		}
 
-		TargetData lastTarget{};
-		isDataAvailable = pBlackboard->GetData("Target", lastTarget);
-		if (!isDataAvailable)
-		{
-			return;
-		}
-
+		
 		HouseInfo houseInfo{};
-		isDataAvailable = pBlackboard->GetData("TargetHouse", houseInfo);
-		if (!isDataAvailable)
-		{
-			return;
-		}
+		pBlackboard->GetData("TargetHouse", houseInfo);
 
 		//move to house center
 		TargetData houseCenter{};
@@ -309,15 +296,10 @@ public:
 		}
 
 		Elite::Vector2 houseEntryPoint{};
-		isDataAvailable = pBlackboard->GetData("HouseEntryPoint", houseEntryPoint);
-		if (!isDataAvailable)
-		{
-			return;
-		}
+		pBlackboard->GetData("HouseEntryPoint", houseEntryPoint);
 
 		TargetData target{};
 		target.Position = houseEntryPoint;
-		//pBlackboard->GetData("Target", target);
 		pSteeringController->SetToSeek(target);
 	}
 	virtual void OnExit(Blackboard* pBlackboard) override
@@ -349,11 +331,7 @@ public:
 		}
 
 		EnemyInfo targetEnemy{};
-		isDataAvailable = pBlackboard->GetData("TargetEnemy", targetEnemy);
-		if (!isDataAvailable)
-		{
-			return;
-		}
+		pBlackboard->GetData("TargetEnemy", targetEnemy);
 
 		TargetData target{};
 		target.Position = targetEnemy.Location;
@@ -370,8 +348,14 @@ public:
 			return;
 		}
 
-		if (Elite::AreEqual(pInterface->Agent_GetInfo().AngularVelocity, 0.f))
-		{
+		EnemyInfo targetEnemy{};
+		pBlackboard->GetData("TargetEnemy", targetEnemy);
+		AgentInfo agentInfo{ pInterface->Agent_GetInfo() };
+
+		//check if agent is aiming at the zombie
+		//Face behavior stops rotating when facing the target, so if the angular velocity is 0 that means the agent is facing the target
+		if (Elite::AreEqual(agentInfo.AngularVelocity, 0.f))
+		{			
 			IExamInterface* pInterface{};
 			bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
 			if (!isDataAvailable)
@@ -379,20 +363,118 @@ public:
 				return;
 			}
 
-			/*int weaponIdx{};
+			//shoot
+			int weaponIdx{};
 			pBlackboard->GetData("WeaponInventoryIndex", weaponIdx);
-			pInterface->Inventory_UseItem(weaponIdx);*/
+			pInterface->Inventory_UseItem(weaponIdx);
+			//decrement shoot counter
+			int nrTimesToShoot{};
+			pBlackboard->GetData("NrTimesToShoot", nrTimesToShoot);
+			pBlackboard->ChangeData("NrTimesToShoot", nrTimesToShoot - 1);
 		}
 	}
 
 	virtual void OnExit(Blackboard* pBlackboard) override
 	{
 		pBlackboard->ChangeData("AutoOrient", true);
+
+		IExamInterface* pInterface{};
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		int weaponIdx{};
+		pBlackboard->GetData("WeaponInventoryIndex", weaponIdx);
+
+		//check if this gun has any more ammo
+		ItemInfo weaponInfo{};
+		pInterface->Inventory_GetItem(weaponIdx, weaponInfo);
+		if (pInterface->Weapon_GetAmmo(weaponInfo) <= 0)
+		{
+			//weapon is empty, throw it away
+			pInterface->Inventory_RemoveItem(weaponIdx);
+
+			//now we need to check if the agent has another gun to use
+			//check all inventory items
+			const unsigned int invCapacity{ pInterface->Inventory_GetCapacity() };
+			for (unsigned int i{ 0 }; i < invCapacity; ++i)
+			{
+				ItemInfo invItem{};
+
+				if (!pInterface->Inventory_GetItem(i, invItem))
+				{
+					//if this slot is empty, continue
+					continue;
+				}
+
+				if (invItem.Type == eItemType::PISTOL)
+				{
+					//if the agent has a weapon, change weapon index data
+					pBlackboard->ChangeData("WeaponInventoryIndex", int(i));
+					return;
+				}
+			}
+			//if the agent has no other weapon, mark this in the weapon inventory index
+			pBlackboard->ChangeData("WeaponInventoryIndex", -1);
+		}
+	}
+};
+
+class GoToWorldCenterState final : public FSMState
+{
+public:
+	GoToWorldCenterState() : FSMState() {};
+	virtual void OnEnter(Blackboard* pBlackboard) override
+	{
+		IExamInterface* pInterface{};
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		SteeringController* pSteering{};
+		isDataAvailable = pBlackboard->GetData("SteeringController", pSteering);
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		
+		WorldInfo worldInfo{ pInterface->World_GetInfo() };
+		TargetData target{};
+		target.Position = worldInfo.Center;
+		pSteering->SetToSeek(target);
+	}
+};
+
+
+class FleePurgeZoneState final : public FSMState
+{
+public:
+	FleePurgeZoneState() : FSMState() {};
+	virtual void OnEnter(Blackboard* pBlackboard) override
+	{
+		SteeringController* pSteeringController{ nullptr };
+		bool isDataAvailable{ pBlackboard->GetData("SteeringController", pSteeringController) };
+
+		if (!isDataAvailable)
+		{
+			return;
+		}
+
+		PurgeZoneInfo targetZone{};
+		pBlackboard->GetData("TargetPurgeZone", targetZone);
+
+		TargetData target{};
+		target.Position = targetZone.Center;
+		pSteeringController->SetToImperfectFlee(target);
 	}
 };
 
 //TRANSITIONS
-
 class SeesZombieTransition final : public Elite::FSMTransition
 {
 public:
@@ -400,12 +482,7 @@ public:
 	virtual bool ToTransition(Blackboard* pBlackboard) const override
 	{
 		std::vector<EntityInfo> entitiesVect{};
-		bool isDataAvailable{pBlackboard->GetData("EntitiesInFOV", entitiesVect)};
-
-		if (!isDataAvailable)
-		{
-			return false;
-		}
+		pBlackboard->GetData("EntitiesInFOV", entitiesVect);
 
 		for (const EntityInfo& info : entitiesVect)
 		{
@@ -429,46 +506,81 @@ public:
 	virtual bool ToTransition(Blackboard* pBlackboard) const override
 	{
 		std::vector<EntityInfo> entitiesVect{};
-		bool isDataAvailable{ pBlackboard->GetData("EntitiesInFOV", entitiesVect) };
+		pBlackboard->GetData("EntitiesInFOV", entitiesVect);
 
-		if (!isDataAvailable)
+		IExamInterface* pInterface{};
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		//check if the agent has a usable weapon
+		//weapon index of -1 means that the agent doesn't have a weapon
+		int weaponIdx{};
+		pBlackboard->GetData("WeaponInventoryIndex", weaponIdx);
+		
+		if (!isDataAvailable || weaponIdx == -1)
 		{
 			return false;
 		}
 
-		IExamInterface* pInterface{};
-		isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		ItemInfo weaponInfo{};
+		bool wasWeaponFound = pInterface->Inventory_GetItem(weaponIdx, weaponInfo);
+		if (!wasWeaponFound || !(weaponInfo.Type == eItemType::PISTOL))
+		{
+			if (!ResetWeaponIndex(pBlackboard, pInterface))
+			{
+				//there actually is no weapon in the inventory
+				return false;
+			}
+		}
 
 		for (const EntityInfo& info : entitiesVect)
 		{
 			if (info.Type == eEntityType::ENEMY)
-			{
-				//check if the agent has a usable weapon
-			//weapon index of -1 means that agent doesn't have a weapon
-				int weaponIdx{};
-				isDataAvailable = pBlackboard->GetData("WeaponInventoryIndex", weaponIdx);
-				if (!isDataAvailable || weaponIdx == -1)
-				{
-					return false;
-				}
-				TargetData target{};
-				target.Position = info.Location;
-				pBlackboard->ChangeData("Target", target);
-
-				EnemyInfo enemyInfo{};
+			{			
+				EnemyInfo enemyInfo{};			
 				pInterface->Enemy_GetInfo(info, enemyInfo);
-				//check if the weapon has enough ammo to kill this zombie
-				ItemInfo weaponInfo{};
-				pInterface->Inventory_GetItem(weaponIdx, weaponInfo);
-				//also don't bother trying to kill heavy zombies
-				if (enemyInfo.Type != eEnemyType::ZOMBIE_HEAVY && enemyInfo.Health <= pInterface->Weapon_GetAmmo(weaponInfo))
+				//only shoot when the enemy is within a certain range (to improve accuracy)
+				const float nearbyRange{ pInterface->Agent_GetInfo().FOV_Range / 2.f };
+				if (Elite::DistanceSquared(enemyInfo.Location, pInterface->Agent_GetInfo().Position) >= (nearbyRange * nearbyRange))
+				{
+					continue;
+				}
+				//check if the weapon has enough ammo to kill this zombie			
+				if (enemyInfo.Health <= pInterface->Weapon_GetAmmo(weaponInfo))
 				{
 					pBlackboard->ChangeData("TargetEnemy", enemyInfo);
+					pBlackboard->ChangeData("NrTimesToShoot", enemyInfo.Health);
 					return true;
 				}			
 			}
 		}
 
+		return false;
+	}
+private:
+	//this function gets called if no valid weapon is found when there should have been one
+	//"recalibrates" the weapon index
+	bool ResetWeaponIndex(Blackboard* pBlackboard, IExamInterface* pInterface) const
+	{		
+		//check all inventory items
+		const unsigned int invCapacity{ pInterface->Inventory_GetCapacity() };
+		for (unsigned int i{ 0 }; i < invCapacity; ++i)
+		{
+			ItemInfo invItem{};
+			if (!pInterface->Inventory_GetItem(i, invItem))
+			{
+				//this slot is empty
+				continue;
+			}
+
+			if (invItem.Type == eItemType::PISTOL)
+			{
+				//the proper index for a weapon was found
+				pBlackboard->ChangeData("WeaponInventoryIndex", int(i));
+				return true;
+			}
+		}
+		//the weapon index was set by mistake at one point since there actually is no weapon in the inventory
+		//set the index properly as invalid
+		pBlackboard->ChangeData("WeaponInventoryIndex", -1);
 		return false;
 	}
 };
@@ -479,10 +591,10 @@ public:
 	HasKilledZombieTransition() : FSMTransition() {};
 	virtual bool ToTransition(Blackboard* pBlackboard) const override
 	{
-		EnemyInfo targetEnemy{};
-		pBlackboard->GetData("TargetEnemy", targetEnemy);
-		//TODO
-		return false;
+		//check if agent has finished shooting
+		int nrTimesToShoot{};
+		pBlackboard->GetData("NrTimesToShoot", nrTimesToShoot);
+		return (nrTimesToShoot == 0);
 	}
 };
 
@@ -493,12 +605,7 @@ public:
 	virtual bool ToTransition(Blackboard* pBlackboard) const override
 	{
 		std::vector<HouseInfo> housesVect{};
-		bool isDataAvailable{ pBlackboard->GetData("HousesInFOV", housesVect) };
-
-		if (!isDataAvailable)
-		{
-			return false;
-		}
+		pBlackboard->GetData("HousesInFOV", housesVect);
 
 		if (!housesVect.empty())
 		{
@@ -511,7 +618,11 @@ public:
 			}
 
 			IExamInterface* pInterface{ nullptr };
-			pBlackboard->GetData("Interface", pInterface);
+			bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+			if (!isDataAvailable)
+			{
+				return false;
+			}
 			//get house info
 			HouseInfo targetHouseInfo{};
 			targetHouseInfo.Center = housesVect[0].Center;
@@ -536,14 +647,10 @@ public:
 	virtual bool ToTransition(Blackboard* pBlackboard) const override
 	{
 		std::vector<EntityInfo> entityVect{};
-		bool isDataAvailable{ pBlackboard->GetData("EntitiesInFOV", entityVect) };
+		pBlackboard->GetData("EntitiesInFOV", entityVect);
 
-		if (!isDataAvailable)
-		{
-			return false;
-		}
-
-		for (int i{ 0 }; i < int(entityVect.size()); ++i)
+		const int size{ int(entityVect.size()) };
+		for (int i{ 0 }; i < size; ++i)
 		{
 			EntityInfo currentInfo{ entityVect[i] };
 			if (currentInfo.Type == eEntityType::ITEM)
@@ -563,9 +670,6 @@ public:
 	FinishedFleeingTransition() : FSMTransition() {};
 	virtual bool ToTransition(Blackboard* pBlackboard) const override
 	{
-		TargetData fleeTarget{};
-		pBlackboard->GetData("Target", fleeTarget);
-
 		IExamInterface* pInterface{};
 		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
 		if (!isDataAvailable)
@@ -573,8 +677,11 @@ public:
 			return false;
 		}
 
+		TargetData fleeTarget{};
+		pBlackboard->GetData("Target", fleeTarget);
+
 		const float requiredDistance{ 40.f };
-		if (Distance(fleeTarget.Position, pInterface->Agent_GetInfo().Position) >= requiredDistance)
+		if (DistanceSquared(fleeTarget.Position, pInterface->Agent_GetInfo().Position) >= requiredDistance * requiredDistance)
 		{
 			return true;
 		}
@@ -634,7 +741,7 @@ public:
 		pBlackboard->GetData("TargetHouse", targetHouse);
 		
 		const float nearbyRange{1.f};
-		if (Distance(targetHouse.Center, pInterface->Agent_GetInfo().Position) <= nearbyRange)
+		if (DistanceSquared(targetHouse.Center, pInterface->Agent_GetInfo().Position) <= nearbyRange * nearbyRange)
 		{
 			return true;
 		}
@@ -648,20 +755,19 @@ public:
 	HasGrabbedItemTransition() : FSMTransition() {};
 	virtual bool ToTransition(Blackboard* pBlackboard) const override
 	{
-		EntityInfo targetItem{};
-		pBlackboard->GetData("TargetItem", targetItem);
-
 		IExamInterface* pInterface{};
 		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
 		if (!isDataAvailable)
 		{
 			return false;
 		}
-		
+
+		EntityInfo targetItem{};
+		pBlackboard->GetData("TargetItem", targetItem);	
 		AgentInfo agentInfo{ pInterface->Agent_GetInfo() };
 		
 		const float nearbyRange{ 1.f };
-		if (Distance(targetItem.Location, agentInfo.Position) <= nearbyRange)
+		if (DistanceSquared(targetItem.Location, agentInfo.Position) <= nearbyRange * nearbyRange)
 		{
 			return true;
 		}
@@ -669,4 +775,126 @@ public:
 	}
 };
 
+class HasLeftWorldTransition final : public Elite::FSMTransition
+{
+public:
+	HasLeftWorldTransition() : FSMTransition() {};
+	virtual bool ToTransition(Blackboard* pBlackboard) const override
+	{
+		IExamInterface* pInterface{};
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		if (!isDataAvailable)
+		{
+			return false;
+		}
+
+		//check if agent is outside world
+		WorldInfo worldInfo{ pInterface->World_GetInfo() };
+		Elite::Vector2 agentPos{ pInterface->Agent_GetInfo().Position };
+		const float worldSize{ 190.f }; //use a separate value because the given world dimensions are too big, agent gets lost easily
+		bool isOutsideWorldX{ agentPos.x < worldInfo.Center.x - worldSize || agentPos.x > worldInfo.Center.x + worldSize };
+		bool isOutsideWorldY{ agentPos.y < worldInfo.Center.y - worldSize || agentPos.y > worldInfo.Center.y + worldSize };
+		if (isOutsideWorldX || isOutsideWorldY)
+		{		
+			return true;
+			
+		}
+
+		return false;		
+	}
+};
+
+class IsAtWorldCenterTransition final : public Elite::FSMTransition
+{
+public:
+	IsAtWorldCenterTransition() : FSMTransition() {};
+	virtual bool ToTransition(Blackboard* pBlackboard) const override
+	{
+		IExamInterface* pInterface{};
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		if (!isDataAvailable)
+		{
+			return false;
+		}
+
+		WorldInfo worldInfo{ pInterface->World_GetInfo() };
+		Elite::Vector2 agentPos{ pInterface->Agent_GetInfo().Position };
+
+		const float nearbyRange{ 10.f };
+		if (Elite::DistanceSquared(worldInfo.Center, agentPos) <= nearbyRange * nearbyRange)
+		{
+			return true;
+		}
+		return false;
+	}
+};
+
+class SeesPurgeZoneTransition final : public Elite::FSMTransition
+{
+public:
+	SeesPurgeZoneTransition() : FSMTransition() {};
+	virtual bool ToTransition(Blackboard* pBlackboard) const override
+	{
+		IExamInterface* pInterface{};
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		if (!isDataAvailable)
+		{
+			return false;
+		}
+
+		std::vector<EntityInfo> entityVect{};
+		pBlackboard->GetData("EntitiesInFOV", entityVect);
+
+		if (entityVect.empty())
+		{
+			return false;
+		}
+
+		const int size{ int(entityVect.size()) };
+		for (int i{ 0 }; i < size; ++i)
+		{
+			EntityInfo currentInfo{ entityVect[i] };
+			if (currentInfo.Type == eEntityType::PURGEZONE)
+			{
+				PurgeZoneInfo zoneInfo{};
+				pInterface->PurgeZone_GetInfo(currentInfo, zoneInfo);
+				pBlackboard->ChangeData("TargetPurgeZone", zoneInfo);
+				return true;
+			}
+		}
+
+		return false;
+	}
+	
+};
+
+class HasLeftPurgeZoneTransition final : public Elite::FSMTransition
+{
+public:
+	HasLeftPurgeZoneTransition() : FSMTransition() {};
+	virtual bool ToTransition(Blackboard* pBlackboard) const override
+	{
+		IExamInterface* pInterface{};
+		bool isDataAvailable = pBlackboard->GetData("Interface", pInterface);
+		if (!isDataAvailable)
+		{
+			return false;
+		}
+		
+		PurgeZoneInfo zoneInfo{};
+		if (!pBlackboard->GetData("TargetPurgeZone", zoneInfo))
+		{
+			return false;
+		}
+		Elite::Vector2 agentPos{pInterface->Agent_GetInfo().Position};
+
+		const float extraBufferDistance{ 5.f };
+		if (Elite::DistanceSquared(zoneInfo.Center, agentPos) > (zoneInfo.Radius * zoneInfo.Radius) + 5.f)
+		{
+			return true;
+		}
+		
+		return false;
+	}
+};
 #endif
