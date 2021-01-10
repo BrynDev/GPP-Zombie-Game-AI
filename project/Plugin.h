@@ -55,6 +55,7 @@ private:
 	Elite::FSMState* m_pGrabItemState = nullptr;
 	Elite::FSMState* m_pKillZombieState = nullptr;
 	Elite::FSMState* m_pGoToWorldCenterState = nullptr;
+	Elite::FSMState* m_pFleePurgeZoneState = nullptr;
 
 	Elite::FSMTransition* m_pSeesZombieTransition = nullptr;
 	Elite::FSMTransition* m_pSeesHouseTransition = nullptr;
@@ -68,6 +69,8 @@ private:
 	Elite::FSMTransition* m_pHasKilledZombieTransition = nullptr;
 	Elite::FSMTransition* m_pHasLeftWorldTransition = nullptr;
 	Elite::FSMTransition* m_pIsAtWorldCenterTransition = nullptr;
+	Elite::FSMTransition* m_pSeesPurgeZoneTransition = nullptr;
+	Elite::FSMTransition* m_pHasLeftPurgeZoneTransition = nullptr;
 
 	SteeringController* m_pSteeringController = nullptr;
 	//=========

@@ -68,6 +68,8 @@ void Plugin::DllInit()
 	m_pGrabItemState = new GrabItemState();
 	m_pKillZombieState = new KillZombieState();
 	m_pGoToWorldCenterState = new GoToWorldCenterState();
+	m_pFleePurgeZoneState = new FleePurgeZoneState();
+
 	//TRANSITIONS
 	m_pSeesZombieTransition = new SeesZombieTransition();
 	m_pSeesHouseTransition = new SeesHouseTransition();
@@ -81,32 +83,54 @@ void Plugin::DllInit()
 	m_pHasKilledZombieTransition = new HasKilledZombieTransition();
 	m_pHasLeftWorldTransition = new HasLeftWorldTransition();
 	m_pIsAtWorldCenterTransition = new IsAtWorldCenterTransition();
+	m_pSeesPurgeZoneTransition = new SeesPurgeZoneTransition();
+	m_pHasLeftPurgeZoneTransition = new HasLeftPurgeZoneTransition();
+
 	//STATE MACHINE
 	m_pFiniteStateMachine = new FiniteStateMachine( m_pWanderState, m_pBlackboard);
-	//zombie related
+	//from wander
+	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pFleePurgeZoneState, m_pSeesPurgeZoneTransition);
+	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pExitCurrentHouseState, m_pIsInsideHouseTransition); //safety measure in case agent ends up wandering inside a house
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pKillZombieState, m_pCanKillZombieTransition);
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pFleeState, m_pSeesZombieTransition);
-	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pWanderState, m_pFinishedFleeingTransition);	
-	//m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition); //could add another transition that first checks if agent is in house
-	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
-	m_pFiniteStateMachine->AddTransition(m_pKillZombieState, m_pWanderState, m_pHasKilledZombieTransition);
-	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pKillZombieState, m_pCanKillZombieTransition);
-	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
-	//house related
-	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pEnterHouseState, m_pSeesHouseTransition);
-	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pSearchCurrentHouseState, m_pIsInsideHouseTransition);
-	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pGrabItemState, m_pSeesItemTransition);
-	m_pFiniteStateMachine->AddTransition(m_pGrabItemState, m_pSearchCurrentHouseState, m_pHasGrabbedItemTransition);
-	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pExitCurrentHouseState, m_pFinishedSearchingHouseTransition);
-	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pExitCurrentHouseState, m_pSeesZombieTransition);
-	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pFleeState, m_pIsNotInsideHouseTransition);
-	//m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pWanderState, m_pIsNotInsideHouseTransition);
-	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pGrabItemState, m_pHasGrabbedItemTransition);
-
+	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pEnterHouseState, m_pSeesHouseTransition);	
 	m_pFiniteStateMachine->AddTransition(m_pWanderState, m_pGoToWorldCenterState, m_pHasLeftWorldTransition);
+	
+	//from flee
+	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pFleePurgeZoneState, m_pSeesPurgeZoneTransition);	
+	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pEnterHouseState, m_pSeesHouseTransition);
+	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pKillZombieState, m_pCanKillZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pFleeState, m_pWanderState, m_pFinishedFleeingTransition);
+	
+	//from exiting a house
+	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pGrabItemState, m_pSeesItemTransition);
+	m_pFiniteStateMachine->AddTransition(m_pExitCurrentHouseState, m_pFleeState, m_pIsNotInsideHouseTransition);
+	
+	//from searching a house
+	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pExitCurrentHouseState, m_pSeesPurgeZoneTransition);
+	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
+	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pGrabItemState, m_pSeesItemTransition);	
+	m_pFiniteStateMachine->AddTransition(m_pSearchCurrentHouseState, m_pExitCurrentHouseState, m_pFinishedSearchingHouseTransition);
+	
+	//from entering a house	
+	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pFleePurgeZoneState, m_pSeesPurgeZoneTransition);
+	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pSearchCurrentHouseState, m_pIsInsideHouseTransition);
+	m_pFiniteStateMachine->AddTransition(m_pEnterHouseState, m_pKillZombieState, m_pCanKillZombieTransition);
+	
+	//from killing a zombie
+	m_pFiniteStateMachine->AddTransition(m_pKillZombieState, m_pWanderState, m_pHasKilledZombieTransition);
+
+	//from grabbing an item
+	m_pFiniteStateMachine->AddTransition(m_pGrabItemState, m_pSearchCurrentHouseState, m_pHasGrabbedItemTransition);
+	
+	//from traveling to the world center
 	m_pFiniteStateMachine->AddTransition(m_pGoToWorldCenterState, m_pEnterHouseState, m_pSeesHouseTransition);
 	m_pFiniteStateMachine->AddTransition(m_pGoToWorldCenterState, m_pKillZombieState, m_pCanKillZombieTransition);
 	m_pFiniteStateMachine->AddTransition(m_pGoToWorldCenterState, m_pWanderState, m_pIsAtWorldCenterTransition);
+
+	//from fleeing a purge zone
+	m_pFiniteStateMachine->AddTransition(m_pFleePurgeZoneState, m_pWanderState, m_pHasLeftPurgeZoneTransition);
 }
 
 //Called only once
@@ -124,6 +148,7 @@ void Plugin::DllShutdown()
 	delete m_pGrabItemState;
 	delete m_pKillZombieState;
 	delete m_pGoToWorldCenterState;
+	delete m_pFleePurgeZoneState;
 	//TRANSITIONS
 	delete m_pSeesZombieTransition;
 	delete m_pSeesHouseTransition;
@@ -136,6 +161,8 @@ void Plugin::DllShutdown()
 	delete m_pHasKilledZombieTransition;
 	delete m_pHasLeftWorldTransition;
 	delete m_pIsAtWorldCenterTransition;
+	delete m_pSeesPurgeZoneTransition;
+	delete m_pHasLeftPurgeZoneTransition;
 
 	delete m_pSteeringController;
 }
@@ -206,10 +233,12 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 	
 	m_pFiniteStateMachine->Update(dt);
 	auto agentInfo = m_pInterface->Agent_GetInfo();
+	//items
 	UseConsumables(agentInfo);
 	//return steering;
 	SteeringPlugin_Output steering{ m_pSteeringController->CalculateSteering(dt, agentInfo) };
 
+	//determine if run mode needs to be changed
 	if (agentInfo.WasBitten)
 	{
 		m_CanRun = true;
@@ -220,6 +249,7 @@ SteeringPlugin_Output Plugin::UpdateSteering(float dt)
 	}
 	steering.RunMode = m_CanRun;
 
+	//set auto orient
 	m_pBlackboard->GetData("AutoOrient", steering.AutoOrient);
 	return steering;
 }
