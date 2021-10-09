@@ -4,6 +4,7 @@ Assignment made as part of my education at Howest DAE. The goal of this project 
 - [Plugin](project/Plugin.cpp) + [Header](project/Plugin.h)
 - [Steering Behaviors](project/SteeringBehaviors.cpp) + [Header](project/SteeringBehaviors.h)
 - [Blended Steering](project/BlendedSteering.cpp) + [Header](project/BlendedSteering.h)
+
 For more information, visit my website: https://bryncouvreur.wixsite.com/portfolio
 
 #### Some notable functions:
