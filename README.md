@@ -6,7 +6,7 @@ Assignment made as part of my education at Howest DAE. The goal of this project 
 - [Blended Steering](project/BlendedSteering.cpp) + [Header](project/BlendedSteering.h)
 For more information, visit my website: https://bryncouvreur.wixsite.com/portfolio
 
-# Some notable functions:
+#### Some notable functions:
 - [GrabItemState::EvaluateItem](project/StatesAndTransitions.h#L172-L259)
 - [EnterHouseState::Update](project/StatesAndTransitions.h#L74-L113)
 - [Plugin::UseConsumables](project/Plugin.h#L302-L340)
