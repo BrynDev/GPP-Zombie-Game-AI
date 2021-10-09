@@ -1,4 +1,7 @@
 # Zombie Game AI Agent
+*Watch the trailer here*
+[![Video trailer](https://img.youtube.com/vi/EMzpoRS-9Ws/maxresdefault.jpg)](https://www.youtube.com/watch?v=EMzpoRS-9Ws)
+
 Assignment made as part of my education at Howest DAE. The goal of this project was to implement an AI agent's behavior in a given zombie game framework. I am responsible for the implementations the main AI agent's behavior as well as the used steering behaviors. These are defined in the following files in the "project" folder:
 - [States and Transitions](project/StatesAndTransitions.h)
 - [Plugin](project/Plugin.cpp) + [Header](project/Plugin.h)
